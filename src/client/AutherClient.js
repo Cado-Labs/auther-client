@@ -1,6 +1,11 @@
 export class AutherClient {
   #location = window.location
 
+  #INITIATE_PATH = "/tokens/initiate"
+  #REVOKE_PATH = "/tokens/initiate"
+  #REFRESH_PATH = "/tokens/refresh"
+  #LOGIN_PATH = "/login"
+
   constructor ({ redirectUri, autherUrl, http }) {
     this.redirectUri = redirectUri
     this.autherUrl = autherUrl
@@ -9,7 +14,7 @@ export class AutherClient {
 
   #buildOauthUrl = () => {
     const returnUrl = new URL(this.redirectUri)
-    const redirectUrl = new URL("/login", this.autherUrl)
+    const redirectUrl = new URL(this.#LOGIN_PATH, this.autherUrl)
 
     redirectUrl.searchParams.append("return_url", returnUrl)
 
@@ -26,7 +31,7 @@ export class AutherClient {
     }
 
     return this.http({
-      path: "/tokens/revoke",
+      path: this.#REVOKE_PATH,
       headers: { Authorization: `Bearer ${accessToken}` },
     })
   }
@@ -37,7 +42,7 @@ export class AutherClient {
     }
 
     return this.http({
-      path: "/tokens/initiate",
+      path: this.#INITIATE_PATH,
       body: { authorization_code: authorizationCode },
     })
   }
@@ -47,6 +52,6 @@ export class AutherClient {
       throw new Error("invalid.refresh_token")
     }
 
-    return this.http({ path: "/tokens/refresh", body: { refreshToken } })
+    return this.http({ path: this.#REFRESH_PATH, body: { refreshToken } })
   }
 }
