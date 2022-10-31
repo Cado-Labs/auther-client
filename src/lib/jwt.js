@@ -26,6 +26,10 @@ const verify = token => {
   const { payload } = decode(token)
   const currentTime = new Date().getTime()
 
+  if (!payload.iat || !payload.exp) {
+    throw new Error("token.invalid")
+  }
+
   if (currentTime > payload.exp * 1000) {
     throw new Error("token.expired")
   }

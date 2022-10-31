@@ -2,7 +2,7 @@ export class AutherClient {
   #location = window.location
 
   #INITIATE_PATH = "/tokens/initiate"
-  #REVOKE_PATH = "/tokens/initiate"
+  #REVOKE_PATH = "/tokens/revoke"
   #REFRESH_PATH = "/tokens/refresh"
   #LOGIN_PATH = "/login"
 
