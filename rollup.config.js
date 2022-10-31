@@ -1,4 +1,5 @@
 import { nodeResolve } from "@rollup/plugin-node-resolve"
+import { babel } from '@rollup/plugin-babel'
 
 const buildAssets = format => ({
   input: "src/index.js",
@@ -6,7 +7,7 @@ const buildAssets = format => ({
     file: `dist/auther-client.${format}.js`,
     format,
   },
-  plugins: [nodeResolve()],
+  plugins: [babel(), nodeResolve()],
 })
 
 const config = [buildAssets("cjs"), buildAssets("es")]
