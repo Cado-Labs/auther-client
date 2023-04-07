@@ -6,19 +6,19 @@ export class AutherClient {
   #REFRESH_PATH = "/tokens/refresh"
   #LOGIN_PATH = "/login"
 
-  constructor ({ redirectUri, autherUrl, http }) {
+  constructor ({ redirectUri, autherUrl, http, appcode }) {
     this.redirectUri = redirectUri
     this.autherUrl = autherUrl
     this.http = http
+    this.appcode = appcode
   }
 
   #buildOauthUrl = () => {
     const returnUrl = new URL(this.redirectUri)
     const redirectUrl = new URL(this.#LOGIN_PATH, this.autherUrl)
-    const appcode = "appcode"
 
     redirectUrl.searchParams.append("return_url", returnUrl)
-    redirectUrl.searchParams.append("appcode", appcode)
+    redirectUrl.searchParams.append("appcode", this.appcode)
 
     return redirectUrl.toString()
   }
