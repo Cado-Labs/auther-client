@@ -8,6 +8,7 @@ fetchMock.enableMocks()
 const TEST_TOKEN = "test-access-token"
 const TEST_REFRESH_TOKEN = "test-refresh-token"
 const RETURN_URI = "http://example.com/"
+const APPCODE = "appcode"
 const AUTHER_URL = "http://localhost/"
 const TEST_AUTHORIZATION_CODE = "75e1cece-2991-4be5-9fb4-c6968e5f3311"
 
@@ -15,6 +16,7 @@ const createAutherClient = () => {
   return AutherClient.init({
     autherUrl: AUTHER_URL,
     redirectUri: RETURN_URI,
+    appcode: APPCODE,
     scope: "test-scope",
     http: doFetch(AUTHER_URL),
   })
@@ -23,8 +25,10 @@ const createAutherClient = () => {
 describe("When use auther methods", () => {
   it("should trigger a redirect", () => {
     const returnUrl = new URL(RETURN_URI)
+    const appcode = APPCODE
     const expectedRedirectUrl = new URL("/login", AUTHER_URL)
     expectedRedirectUrl.searchParams.append("return_url", returnUrl)
+    expectedRedirectUrl.searchParams.append("appcode", appcode)
     const locationPathMock = jest.fn()
 
     jest.spyOn(window, "location", "get").mockImplementationOnce(() => ({
