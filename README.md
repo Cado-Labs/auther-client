@@ -24,6 +24,7 @@ import { AutherClient } from "@cadolabs/auther-client"
 const auth = AutherClient.init({
   autherUrl: "<AUTHER_DOMAIN>",
   redirectUri: "<CALLBACK_URL>",
+  appcode: "<APP_CODE>", // your app unique id
 })
 ```
 
