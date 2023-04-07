@@ -15,8 +15,10 @@ export class AutherClient {
   #buildOauthUrl = () => {
     const returnUrl = new URL(this.redirectUri)
     const redirectUrl = new URL(this.#LOGIN_PATH, this.autherUrl)
+    const appcode = "appcode"
 
     redirectUrl.searchParams.append("return_url", returnUrl)
+    redirectUrl.searchParams.append("appcode", appcode)
 
     return redirectUrl.toString()
   }
