@@ -1,8 +1,8 @@
 import { verify, decode } from "../lib/jwt"
 
 // TODO: delete
-// const ONE_SECOND_MS = 1000
-const ONE_MINUTE_MS = 60 * 1000
+const ONE_SECOND_MS = 1000
+// const ONE_MINUTE_MS = 60 * 1000
 const ONE_DAY_MS = 24 * 60 * 60 * 1000
 
 export class AutherClient {
@@ -76,13 +76,13 @@ export class AutherClient {
     let refreshTimeout = (tokenExpDateMs - new Date()) / 2
 
     // TODO: delete
-    // if (refreshTimeout < ONE_SECOND_MS) {
-    //   refreshTimeout = ONE_SECOND_MS
-    // }
-
-    if (refreshTimeout < ONE_MINUTE_MS) {
-      refreshTimeout = ONE_MINUTE_MS
+    if (refreshTimeout < ONE_SECOND_MS) {
+      refreshTimeout = ONE_SECOND_MS
     }
+
+    // if (refreshTimeout < ONE_MINUTE_MS) {
+    //   refreshTimeout = ONE_MINUTE_MS
+    // }
 
     if (refreshTimeout > ONE_DAY_MS) {
       refreshTimeout = ONE_DAY_MS
