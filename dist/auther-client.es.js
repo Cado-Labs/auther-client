@@ -534,9 +534,7 @@ var doFetch = function doFetch(url) {
   };
 };
 
-// TODO: delete
-var ONE_SECOND_MS = 1000;
-// const ONE_MINUTE_MS = 60 * 1000
+var ONE_MINUTE_MS = 60 * 1000;
 var ONE_DAY_MS = 24 * 60 * 60 * 1000;
 var _location = /*#__PURE__*/new WeakMap();
 var _INITIATE_PATH = /*#__PURE__*/new WeakMap();
@@ -544,6 +542,9 @@ var _REVOKE_PATH = /*#__PURE__*/new WeakMap();
 var _REFRESH_PATH = /*#__PURE__*/new WeakMap();
 var _LOGIN_PATH = /*#__PURE__*/new WeakMap();
 var _buildOauthUrl = /*#__PURE__*/new WeakMap();
+var _refreshTokens = /*#__PURE__*/new WeakMap();
+var _refreshTokensByTimer = /*#__PURE__*/new WeakMap();
+var _refresh = /*#__PURE__*/new WeakMap();
 var AutherClient = /*#__PURE__*/_createClass(function AutherClient(_ref) {
   var _this = this;
   var redirectUri = _ref.redirectUri,
@@ -582,6 +583,122 @@ var AutherClient = /*#__PURE__*/_createClass(function AutherClient(_ref) {
       return redirectUrl.toString();
     }
   });
+  _classPrivateFieldInitSpec(this, _refreshTokens, {
+    writable: true,
+    value: function () {
+      var _value = _asyncToGenerator( /*#__PURE__*/_regeneratorRuntime().mark(function _callee(_ref2) {
+        var fetchTokens, saveTokens, currentTime, _fetchTokens, refreshToken, response, tokens;
+        return _regeneratorRuntime().wrap(function _callee$(_context) {
+          while (1) {
+            switch (_context.prev = _context.next) {
+              case 0:
+                fetchTokens = _ref2.fetchTokens, saveTokens = _ref2.saveTokens;
+                currentTime = "".concat(new Date(), " [").concat(new Date().toUTCString(), "]");
+                _fetchTokens = fetchTokens(), refreshToken = _fetchTokens.refreshToken;
+                _context.next = 5;
+                return _this.updateTokens(refreshToken);
+              case 5:
+                response = _context.sent;
+                _context.next = 8;
+                return response.json();
+              case 8:
+                tokens = _context.sent;
+                saveTokens(tokens);
+                _this.logger.log("Access token has been refreshed successfully at ".concat(currentTime));
+                _this.logger.log("Refresh token has been refreshed successfully at ".concat(currentTime));
+                _classPrivateFieldGet(_this, _refreshTokensByTimer).call(_this, {
+                  fetchTokens: fetchTokens,
+                  saveTokens: saveTokens
+                });
+              case 13:
+              case "end":
+                return _context.stop();
+            }
+          }
+        }, _callee);
+      }));
+      function value(_x) {
+        return _value.apply(this, arguments);
+      }
+      return value;
+    }()
+  });
+  _classPrivateFieldInitSpec(this, _refreshTokensByTimer, {
+    writable: true,
+    value: function value(_ref3) {
+      var fetchTokens = _ref3.fetchTokens,
+        saveTokens = _ref3.saveTokens;
+      var _fetchTokens2 = fetchTokens(),
+        accessToken = _fetchTokens2.accessToken;
+      verify(accessToken);
+      var decodedToken = decode(accessToken);
+      var tokenExpDateMs = decodedToken.payload.exp * 1000;
+      var refreshTimeout = (tokenExpDateMs - new Date()) / 2;
+      if (refreshTimeout < ONE_MINUTE_MS) {
+        refreshTimeout = ONE_MINUTE_MS;
+      }
+      if (refreshTimeout > ONE_DAY_MS) {
+        refreshTimeout = ONE_DAY_MS;
+      }
+      var tokenExpDate = new Date(tokenExpDateMs);
+      var refreshDate = new Date(Date.now() + refreshTimeout);
+      _this.logger.log("Token will expire at ".concat(tokenExpDate, " [").concat(tokenExpDate.toUTCString(), "]"));
+      _this.logger.log("Token will be refreshed at ".concat(refreshDate, " [").concat(refreshDate.toUTCString(), "]"));
+      setTimeout(function () {
+        try {
+          _classPrivateFieldGet(_this, _refreshTokens).call(_this, {
+            fetchTokens: fetchTokens,
+            saveTokens: saveTokens
+          });
+        } catch (error) {
+          _this.logger.error("Error during tokens refreshing at ".concat(new Date(), " [").concat(new Date().toUTCString(), "]"));
+          throw error;
+        }
+      }, refreshTimeout);
+    }
+  });
+  _classPrivateFieldInitSpec(this, _refresh, {
+    writable: true,
+    value: function () {
+      var _value2 = _asyncToGenerator( /*#__PURE__*/_regeneratorRuntime().mark(function _callee2(_ref4) {
+        var fetchTokens, saveTokens, immediate, _fetchTokens3, refreshToken;
+        return _regeneratorRuntime().wrap(function _callee2$(_context2) {
+          while (1) {
+            switch (_context2.prev = _context2.next) {
+              case 0:
+                fetchTokens = _ref4.fetchTokens, saveTokens = _ref4.saveTokens, immediate = _ref4.immediate;
+                _fetchTokens3 = fetchTokens(), refreshToken = _fetchTokens3.refreshToken;
+                verify(refreshToken);
+                if (!immediate) {
+                  _context2.next = 8;
+                  break;
+                }
+                _context2.next = 6;
+                return _classPrivateFieldGet(_this, _refreshTokens).call(_this, {
+                  fetchTokens: fetchTokens,
+                  saveTokens: saveTokens
+                });
+              case 6:
+                _context2.next = 9;
+                break;
+              case 8:
+                _classPrivateFieldGet(_this, _refreshTokensByTimer).call(_this, {
+                  fetchTokens: fetchTokens,
+                  saveTokens: saveTokens
+                });
+              case 9:
+              case "end":
+                return _context2.stop();
+            }
+          }
+        }, _callee2);
+      }));
+      function value(_x2) {
+        return _value2.apply(this, arguments);
+      }
+      return value;
+    }()
+  });
   _defineProperty(this, "login", function () {
     return _classPrivateFieldGet(_this, _location).replace(_classPrivateFieldGet(_this, _buildOauthUrl).call(_this));
   });
@@ -618,153 +735,37 @@ var AutherClient = /*#__PURE__*/_createClass(function AutherClient(_ref) {
       }
     });
   });
-  _defineProperty(this, "refreshByTimer", function (_ref2) {
-    var fetchTokens = _ref2.fetchTokens,
-      saveTokens = _ref2.saveTokens;
-    var _fetchTokens = fetchTokens(),
-      accessToken = _fetchTokens.accessToken;
-    verify(accessToken);
-    var decodedToken = decode(accessToken);
-    var tokenExpDateMs = decodedToken.payload.exp * 1000;
-    var refreshTimeout = (tokenExpDateMs - new Date()) / 2;
-
-    // TODO: delete
-    if (refreshTimeout < ONE_SECOND_MS) {
-      refreshTimeout = ONE_SECOND_MS;
-    }
-
-    // if (refreshTimeout < ONE_MINUTE_MS) {
-    //   refreshTimeout = ONE_MINUTE_MS
-    // }
-
-    if (refreshTimeout > ONE_DAY_MS) {
-      refreshTimeout = ONE_DAY_MS;
-    }
-    var tokenExpDate = new Date(tokenExpDateMs);
-    var refreshDate = new Date(Date.now() + refreshTimeout);
-    _this.logger.log("Token will expire at ".concat(tokenExpDate, " [").concat(tokenExpDate.toUTCString(), "]"));
-    _this.logger.log("Token will be refreshed at ".concat(refreshDate, " [").concat(refreshDate.toUTCString(), "]"));
-    setTimeout(function () {
-      try {
-        _this.refresh({
-          fetchTokens: fetchTokens,
-          saveTokens: saveTokens
-        });
-      } catch (error) {
-        _this.logger.error("Error during tokens refreshing at ".concat(new Date(), " [").concat(new Date().toUTCString(), "]"));
-        throw error;
-      }
-    }, refreshTimeout);
-  });
-  _defineProperty(this, "refresh", /*#__PURE__*/function () {
-    var _ref4 = _asyncToGenerator( /*#__PURE__*/_regeneratorRuntime().mark(function _callee(_ref3) {
-      var fetchTokens, saveTokens, currentTime, _fetchTokens2, refreshToken, response, tokens;
-      return _regeneratorRuntime().wrap(function _callee$(_context) {
-        while (1) {
-          switch (_context.prev = _context.next) {
-            case 0:
-              fetchTokens = _ref3.fetchTokens, saveTokens = _ref3.saveTokens;
-              currentTime = "".concat(new Date(), " [").concat(new Date().toUTCString(), "]");
-              _fetchTokens2 = fetchTokens(), refreshToken = _fetchTokens2.refreshToken;
-              _context.next = 5;
-              return _this.updateTokens(refreshToken);
-            case 5:
-              response = _context.sent;
-              _context.next = 8;
-              return response.json();
-            case 8:
-              tokens = _context.sent;
-              saveTokens(tokens);
-              _this.logger.log("Access token has been refreshed successfully at ".concat(currentTime));
-              _this.logger.log("Refresh token has been refreshed successfully at ".concat(currentTime));
-              _this.refreshByTimer({
-                fetchTokens: fetchTokens,
-                saveTokens: saveTokens
-              });
-            case 13:
-            case "end":
-              return _context.stop();
-          }
-        }
-      }, _callee);
-    }));
-    return function (_x) {
-      return _ref4.apply(this, arguments);
-    };
-  }());
-  _defineProperty(this, "authWithRefresh", /*#__PURE__*/function () {
-    var _ref6 = _asyncToGenerator( /*#__PURE__*/_regeneratorRuntime().mark(function _callee2(_ref5) {
-      var fetchTokens, saveTokens, immediate, _fetchTokens3, refreshToken;
-      return _regeneratorRuntime().wrap(function _callee2$(_context2) {
-        while (1) {
-          switch (_context2.prev = _context2.next) {
-            case 0:
-              fetchTokens = _ref5.fetchTokens, saveTokens = _ref5.saveTokens, immediate = _ref5.immediate;
-              _fetchTokens3 = fetchTokens(), refreshToken = _fetchTokens3.refreshToken;
-              verify(refreshToken);
-              if (!immediate) {
-                _context2.next = 8;
-                break;
-              }
-              _context2.next = 6;
-              return _this.refresh({
-                fetchTokens: fetchTokens,
-                saveTokens: saveTokens
-              });
-            case 6:
-              _context2.next = 9;
-              break;
-            case 8:
-              _this.refreshByTimer({
-                fetchTokens: fetchTokens,
-                saveTokens: saveTokens
-              });
-            case 9:
-            case "end":
-              return _context2.stop();
-          }
-        }
-      }, _callee2);
-    }));
-    return function (_x2) {
-      return _ref6.apply(this, arguments);
-    };
-  }());
   _defineProperty(this, "authentication", /*#__PURE__*/function () {
-    var _ref8 = _asyncToGenerator( /*#__PURE__*/_regeneratorRuntime().mark(function _callee3(_ref7) {
+    var _ref6 = _asyncToGenerator( /*#__PURE__*/_regeneratorRuntime().mark(function _callee3(_ref5) {
       var fetchTokens, saveTokens, _fetchTokens4, accessToken;
       return _regeneratorRuntime().wrap(function _callee3$(_context3) {
         while (1) {
           switch (_context3.prev = _context3.next) {
             case 0:
-              fetchTokens = _ref7.fetchTokens, saveTokens = _ref7.saveTokens;
+              fetchTokens = _ref5.fetchTokens, saveTokens = _ref5.saveTokens;
               _fetchTokens4 = fetchTokens(), accessToken = _fetchTokens4.accessToken;
               _context3.prev = 2;
               verify(accessToken);
-              _context3.next = 12;
+              _context3.next = 11;
               break;
             case 6:
               _context3.prev = 6;
               _context3.t0 = _context3["catch"](2);
-              // TODO: delete
-              _this.logger.error("err: ", _context3.t0);
-              _context3.next = 11;
-              return _this.authWithRefresh({
+              _context3.next = 10;
+              return _classPrivateFieldGet(_this, _refresh).call(_this, {
                 fetchTokens: fetchTokens,
                 saveTokens: saveTokens,
                 immediate: true
               });
-            case 11:
+            case 10:
               return _context3.abrupt("return");
-            case 12:
-              // TODO: delete
-              _this.logger.log("fine 💚💚💚💚");
-              return _context3.abrupt("return", _this.authWithRefresh({
+            case 11:
+              _classPrivateFieldGet(_this, _refresh).call(_this, {
                 fetchTokens: fetchTokens,
                 saveTokens: saveTokens,
                 immediate: false
-              }));
-            case 14:
+              });
+            case 12:
             case "end":
               return _context3.stop();
           }
@@ -772,7 +773,7 @@ var AutherClient = /*#__PURE__*/_createClass(function AutherClient(_ref) {
       }, _callee3, null, [[2, 6]]);
     }));
     return function (_x3) {
-      return _ref8.apply(this, arguments);
+      return _ref6.apply(this, arguments);
     };
   }());
   this.redirectUri = redirectUri;
