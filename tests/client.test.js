@@ -17,9 +17,33 @@ const createAutherClient = () => {
     autherUrl: AUTHER_URL,
     redirectUri: RETURN_URI,
     appcode: APPCODE,
-    scope: "test-scope",
     http: doFetch(AUTHER_URL),
   })
+}
+
+const getTokenPayload = expDate => {
+  const expiredAt = expDate ? new Date(expDate) : new Date()
+  const issuedAt = new Date(expiredAt)
+  expiredAt.setHours(expiredAt.getHours() + 1)
+  const iat = issuedAt.getTime() / 1000 // in seconds
+  const exp = expiredAt.getTime() / 1000 // in seconds
+  return { iat, exp }
+}
+
+const getToken = (params = {}) => {
+  const payload = btoa(JSON.stringify({ ...getTokenPayload(), ...params }))
+  const header = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"
+  const signature = "SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+  const jwtLikeToken = `${header}.${payload}.${signature}`
+  return jwtLikeToken
+}
+
+const getAccessToken = (params = {}) => {
+  return getToken({ type: "access", ...params })
+}
+
+const getRefreshToken = (params = {}) => {
+  return getToken({ type: "refresh", ...params })
 }
 
 describe("When use auther methods", () => {
@@ -97,6 +121,96 @@ describe("When use auther methods", () => {
       method: "POST",
       body: expectedBody,
       headers: expectedHeaders,
+    })
+  })
+
+  describe("authenticate method", () => {
+    it("should authenticate with fresh tokens", async () => {
+      fetch.mockResponseOnce(JSON.stringify({
+        accessToken: getAccessToken(),
+        refreshToken: getRefreshToken(),
+      }))
+      jest.useFakeTimers()
+
+      const auth = createAutherClient()
+      const accessToken = getAccessToken()
+      const refreshToken = getRefreshToken()
+      const fetchTokens = () => ({ accessToken, refreshToken })
+      const saveTokens = () => {}
+
+      await expect(() => auth.authentication({ fetchTokens, saveTokens })).not.toThrowError()
+
+      jest.runOnlyPendingTimers()
+
+      const expectedUrl = "http://localhost/tokens/refresh"
+      const expectedBody = JSON.stringify({ refreshToken })
+      const expectedHeaders = {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      }
+
+      expect(fetch).toHaveBeenCalledWith(expectedUrl, {
+        method: "POST",
+        body: expectedBody,
+        headers: expectedHeaders,
+      })
+    })
+
+    it("should authenticate with fresh refresh token and expired access token", async () => {
+      fetch.mockResponseOnce(JSON.stringify({
+        accessToken: getAccessToken(),
+        refreshToken: getRefreshToken(),
+      }))
+      jest.useFakeTimers()
+
+      const auth = createAutherClient()
+      const expiredDate = new Date()
+      expiredDate.setHours(expiredDate.getHours() - 3)
+
+      let accessToken = getAccessToken(getTokenPayload(expiredDate))
+      let refreshToken = getRefreshToken()
+      const fetchTokens = () => ({ accessToken, refreshToken })
+      const saveTokens = (tokens = {}) => {
+        if (tokens.accessToken) accessToken = tokens.accessToken
+        if (tokens.refreshToken) refreshToken = tokens.refreshToken
+      }
+
+      await expect(() => auth.authentication({ fetchTokens, saveTokens })).not.toThrowError()
+
+      jest.runOnlyPendingTimers()
+
+      const expectedUrl = "http://localhost/tokens/refresh"
+      const expectedBody = JSON.stringify({ refreshToken })
+      const expectedHeaders = {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      }
+
+      expect(fetch).toHaveBeenCalledWith(expectedUrl, {
+        method: "POST",
+        body: expectedBody,
+        headers: expectedHeaders,
+      })
+    })
+
+    it("should throw error when both tokens expired", async () => {
+      const auth = createAutherClient()
+      const expiredDate = new Date()
+      expiredDate.setHours(expiredDate.getHours() - 3)
+      let accessToken = getAccessToken(getTokenPayload(expiredDate))
+      let refreshToken = getRefreshToken(getTokenPayload(expiredDate))
+
+      const fetchTokens = () => ({ accessToken, refreshToken })
+      const saveTokens = (tokens = {}) => {
+        if (tokens.accessToken) accessToken = tokens.accessToken
+        if (tokens.refreshToken) refreshToken = tokens.refreshToken
+      }
+
+      await expect(() => auth.authentication({ fetchTokens, saveTokens }))
+        .rejects
+        .toThrow("token.expired")
+
+      expect(fetch).not.toHaveBeenCalled()
     })
   })
 })
