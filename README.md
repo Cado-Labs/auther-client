@@ -47,7 +47,7 @@ And after that you redirect to the callback route `<CALLBACK_URL>` with query st
 try {
   const authorizationCode = "12345"
 
-  const response = await auth.getTokens(authorizationCode) // return Promise
+  const response = await auth.fetchTokens(authorizationCode) // return Promise
   const tokens = response.json()
 
   const { accessToken, refreshToken } = tokens

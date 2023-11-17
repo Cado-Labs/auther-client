@@ -107,7 +107,7 @@ describe("When use auther methods", () => {
   it("should make a request to get tokens", async () => {
     const auth = createAutherClient()
 
-    const response = await auth.getTokens(TEST_AUTHORIZATION_CODE)
+    const response = await auth.fetchTokens(TEST_AUTHORIZATION_CODE)
 
     const expectedUrl = "http://localhost/tokens/initiate"
     const expectedBody = JSON.stringify({ authorization_code: TEST_AUTHORIZATION_CODE })
@@ -135,10 +135,10 @@ describe("When use auther methods", () => {
       const auth = createAutherClient()
       const accessToken = getAccessToken()
       const refreshToken = getRefreshToken()
-      const fetchTokens = () => ({ accessToken, refreshToken })
+      const getTokens = () => ({ accessToken, refreshToken })
       const saveTokens = () => {}
 
-      await expect(() => auth.authentication({ fetchTokens, saveTokens })).not.toThrowError()
+      await expect(() => auth.authentication({ getTokens, saveTokens })).not.toThrowError()
 
       jest.runOnlyPendingTimers()
 
@@ -169,13 +169,13 @@ describe("When use auther methods", () => {
 
       let accessToken = getAccessToken(getTokenPayload(expiredDate))
       let refreshToken = getRefreshToken()
-      const fetchTokens = () => ({ accessToken, refreshToken })
+      const getTokens = () => ({ accessToken, refreshToken })
       const saveTokens = (tokens = {}) => {
         if (tokens.accessToken) accessToken = tokens.accessToken
         if (tokens.refreshToken) refreshToken = tokens.refreshToken
       }
 
-      await expect(() => auth.authentication({ fetchTokens, saveTokens })).not.toThrowError()
+      await expect(() => auth.authentication({ getTokens, saveTokens })).not.toThrowError()
 
       jest.runOnlyPendingTimers()
 
@@ -200,13 +200,13 @@ describe("When use auther methods", () => {
       let accessToken = getAccessToken(getTokenPayload(expiredDate))
       let refreshToken = getRefreshToken(getTokenPayload(expiredDate))
 
-      const fetchTokens = () => ({ accessToken, refreshToken })
+      const getTokens = () => ({ accessToken, refreshToken })
       const saveTokens = (tokens = {}) => {
         if (tokens.accessToken) accessToken = tokens.accessToken
         if (tokens.refreshToken) refreshToken = tokens.refreshToken
       }
 
-      await expect(() => auth.authentication({ fetchTokens, saveTokens }))
+      await expect(() => auth.authentication({ getTokens, saveTokens }))
         .rejects
         .toThrow("token.expired")
 
@@ -226,9 +226,9 @@ describe("When params is missing", () => {
 
   it("should show an error invalid authorization code", async () => {
     const auth = createAutherClient()
-    const getTokens = () => auth.getTokens(undefined)
+    const fetchTokens = () => auth.fetchTokens(undefined)
 
-    expect(getTokens).toThrow("invalid.authorization_code")
+    expect(fetchTokens).toThrow("invalid.authorization_code")
     expect(fetchMock).not.toHaveBeenCalled()
   })
 

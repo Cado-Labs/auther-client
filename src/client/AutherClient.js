@@ -29,23 +29,22 @@ export class AutherClient {
     return redirectUrl.toString()
   }
 
-  #refreshTokens = async ({ fetchTokens, saveTokens }) => {
+  #refreshTokens = async ({ getTokens, saveTokens }) => {
     const currentTime = `${new Date()} [${new Date().toUTCString()}]`
-    const { refreshToken } = fetchTokens()
+    const { refreshToken } = getTokens()
+
+    verify(refreshToken)
 
     const response = await this.updateTokens(refreshToken)
     const tokens = await response.json()
 
     saveTokens(tokens)
 
-    this.logger.log(`Access token has been refreshed successfully at ${currentTime}`)
-    this.logger.log(`Refresh token has been refreshed successfully at ${currentTime}`)
-
-    this.#refreshTokensByTimer({ fetchTokens, saveTokens })
+    this.logger.log(`Token has been refreshed successfully at ${currentTime}`)
   }
 
-  #refreshTokensByTimer = ({ fetchTokens, saveTokens }) => {
-    const { accessToken } = fetchTokens()
+  #scheduleTokensRefreshing = ({ getTokens, saveTokens }) => {
+    const { accessToken } = getTokens()
 
     verify(accessToken)
 
@@ -67,9 +66,10 @@ export class AutherClient {
     this.logger.log(`Token will expire at ${(tokenExpDate)} [${tokenExpDate.toUTCString()}]`)
     this.logger.log(`Token will be refreshed at ${refreshDate} [${refreshDate.toUTCString()}]`)
 
-    setTimeout(() => {
+    setTimeout(async () => {
       try {
-        this.#refreshTokens({ fetchTokens, saveTokens })
+        await this.#refreshTokens({ getTokens, saveTokens })
+        this.#scheduleTokensRefreshing({ getTokens, saveTokens })
       }
       catch (error) {
         this.logger.error(
@@ -78,16 +78,6 @@ export class AutherClient {
         throw error
       }
     }, refreshTimeout)
-  }
-
-  #refresh = async ({ fetchTokens, saveTokens, immediate }) => {
-    const { refreshToken } = fetchTokens()
-
-    verify(refreshToken)
-
-    immediate
-      ? await this.#refreshTokens({ fetchTokens, saveTokens })
-      : this.#refreshTokensByTimer({ fetchTokens, saveTokens })
   }
 
   login = () => {
@@ -105,7 +95,7 @@ export class AutherClient {
     })
   }
 
-  getTokens = authorizationCode => {
+  fetchTokens = authorizationCode => {
     if (!authorizationCode) {
       throw new Error("invalid.authorization_code")
     }
@@ -124,16 +114,15 @@ export class AutherClient {
     return this.http({ path: this.#REFRESH_PATH, body: { refreshToken } })
   }
 
-  authentication = async ({ fetchTokens, saveTokens }) => {
-    const { accessToken } = fetchTokens()
+  authentication = async ({ getTokens, saveTokens }) => {
+    const { accessToken } = getTokens()
     try {
       verify(accessToken)
     }
     catch (err) {
-      await this.#refresh({ fetchTokens, saveTokens, immediate: true })
-      return
+      await this.#refreshTokens({ getTokens, saveTokens })
     }
 
-    this.#refresh({ fetchTokens, saveTokens, immediate: false })
+    this.#scheduleTokensRefreshing({ getTokens, saveTokens })
   }
 }
