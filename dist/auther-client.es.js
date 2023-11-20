@@ -655,14 +655,13 @@ var AutherClient = /*#__PURE__*/_createClass(function AutherClient(_ref) {
                   getTokens: getTokens,
                   saveTokens: saveTokens
                 });
-                _context2.next = 10;
+                _context2.next = 9;
                 break;
               case 6:
                 _context2.prev = 6;
                 _context2.t0 = _context2["catch"](0);
                 _this.logger.error("Error during tokens refreshing at ".concat(new Date(), " [").concat(new Date().toUTCString(), "]"));
-                throw _context2.t0;
-              case 10:
+              case 9:
               case "end":
                 return _context2.stop();
             }

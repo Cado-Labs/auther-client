@@ -75,7 +75,6 @@ export class AutherClient {
         this.logger.error(
           `Error during tokens refreshing at ${new Date()} [${new Date().toUTCString()}]`,
         )
-        throw error
       }
     }, refreshTimeout)
   }
