@@ -47,7 +47,7 @@ And after that you redirect to the callback route `<CALLBACK_URL>` with query st
 try {
   const authorizationCode = "12345"
 
-  const response = await auth.getTokens(authorizationCode) // return Promise
+  const response = await auth.fetchTokens(authorizationCode) // return Promise
   const tokens = response.json()
 
   const { accessToken, refreshToken } = tokens
@@ -86,6 +86,32 @@ try {
   ...
 } catch (error) {
   throw Error(error.message) // invalid.access_token
+}
+```
+
+#### Authentication
+
+Authentication method for verifying access and refresh tokens and scheduling tokens refreshing.
+
+```js
+const getTokens = () => {
+  const accessToken = localStorage.getItem("accessToken")
+  const refreshToken = localStorage.getItem("refreshToken")
+
+  return { accessToken, refreshToken }
+}
+
+const saveTokens = ({ accessToken, refreshToken }) => {
+  localStorage.setItem("accessToken", accessToken)
+  localStorage.setItem("refreshToken", refreshToken)
+}
+
+//async/await
+try {
+  await auth.authentication({ getTokens, saveTokens })
+  ...
+} catch (error) {
+  throw Error(error.message) // token.not_found
 }
 ```
 

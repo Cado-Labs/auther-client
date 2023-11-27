@@ -1,6 +1,6 @@
 {
   "name": "@cadolabs/auther-client",
-  "version": "0.2.0",
+  "version": "1.0.0",
   "main": "dist/auther-client.cjs.js",
   "module": "dist/auther-client.es.js",
   "description": "Client for working with auther on the frontend side",
