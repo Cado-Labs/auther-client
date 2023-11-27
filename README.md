@@ -102,8 +102,8 @@ const getTokens = () => {
 }
 
 const saveTokens = ({ accessToken, refreshToken }) => {
-  const accessToken = localStorage.setItem("accessToken", accessToken)
-  const refreshToken = localStorage.setItem("refreshToken", refreshToken)
+  localStorage.setItem("accessToken", accessToken)
+  localStorage.setItem("refreshToken", refreshToken)
 }
 
 //async/await
