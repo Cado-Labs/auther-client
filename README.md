@@ -89,6 +89,32 @@ try {
 }
 ```
 
+#### Authentication
+
+Authentication method for verifying access and refresh tokens and scheduling tokens refreshing.
+
+```js
+const getTokens = () => {
+  const accessToken = localStorage.getItem("accessToken")
+  const refreshToken = localStorage.getItem("refreshToken")
+
+  return { accessToken, refreshToken }
+}
+
+const saveTokens = ({ accessToken, refreshToken }) => {
+  const accessToken = localStorage.setItem("accessToken", accessToken)
+  const refreshToken = localStorage.setItem("refreshToken", refreshToken)
+}
+
+//async/await
+try {
+  await auth.authentication({ getTokens, saveTokens })
+  ...
+} catch (error) {
+  throw Error(error.message) // token.not_found
+}
+```
+
 ### Additional usage
 
 #### Decode token
