@@ -10,6 +10,7 @@ export class AutherClient {
   #REVOKE_PATH = "/tokens/revoke"
   #REFRESH_PATH = "/tokens/refresh"
   #LOGIN_PATH = "/login"
+  #DISPOSABLE_TOKEN_PATH = "/tokens/disposable"
 
   constructor ({ redirectUri, autherUrl, http, appcode, logger }) {
     this.redirectUri = redirectUri
@@ -123,5 +124,17 @@ export class AutherClient {
     }
 
     this.#scheduleTokensRefreshing({ getTokens, saveTokens })
+  }
+
+  fetchDisposableTokensById = async ({ id }) => {
+    if (!id) {
+      throw new Error("invalid.auther_id")
+    }
+
+    return await this.http({
+      path: this.#DISPOSABLE_TOKEN_PATH,
+      query: { id },
+      method: "GET",
+    })
   }
 }
