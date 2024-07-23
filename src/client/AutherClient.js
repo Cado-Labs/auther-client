@@ -50,6 +50,9 @@ export class AutherClient {
     verify(accessToken)
 
     const decodedToken = decode(accessToken)
+
+    if (decodedToken.payload.temp) return false
+
     const tokenExpDateMs = decodedToken.payload.exp * 1000
     let refreshTimeout = (tokenExpDateMs - new Date()) / 2
 
@@ -126,15 +129,19 @@ export class AutherClient {
     this.#scheduleTokensRefreshing({ getTokens, saveTokens })
   }
 
-  fetchDisposableTokensById = async ({ id }) => {
+  fetchDisposableTokensById = ({ id, headers }) => {
+    if (!headers) {
+      throw new Error("invalid.headers")
+    }
+
     if (!id) {
       throw new Error("invalid.auther_id")
     }
 
-    return await this.http({
+    return this.http({
       path: this.#DISPOSABLE_TOKEN_PATH,
-      query: { id },
-      method: "GET",
+      body: { id },
+      headers,
     })
   }
 }

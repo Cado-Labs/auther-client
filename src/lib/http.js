@@ -1,5 +1,5 @@
 export const doFetch = baseUrl => params => {
-  const { path, body, query, method = "POST", headers = "" } = params
+  const { path, body, method = "POST", headers = "" } = params
 
   const buildHeaders = () => {
     const defaultHeaders = {
@@ -19,18 +19,13 @@ export const doFetch = baseUrl => params => {
     return JSON.stringify(body)
   }
 
-  const buildUrl = (query) => {
+  const buildUrl = () => {
     const url = new URL(path, baseUrl)
 
-    if (query) {
-      const params = new URLSearchParams(query)
-      url.search = params.toString()
-    }
-    
     return url.toString()
   }
 
-  const requestUrl = buildUrl(query)
+  const requestUrl = buildUrl()
   const requestHeaders = buildHeaders()
   const requestBody = buildBody()
 
