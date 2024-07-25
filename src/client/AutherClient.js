@@ -10,6 +10,7 @@ export class AutherClient {
   #REVOKE_PATH = "/tokens/revoke"
   #REFRESH_PATH = "/tokens/refresh"
   #LOGIN_PATH = "/login"
+  #DISPOSABLE_TOKEN_PATH = "/tokens/disposable"
 
   constructor ({ redirectUri, autherUrl, http, appcode, logger }) {
     this.redirectUri = redirectUri
@@ -49,6 +50,9 @@ export class AutherClient {
     verify(accessToken)
 
     const decodedToken = decode(accessToken)
+
+    if (decodedToken.payload.temp) return false
+
     const tokenExpDateMs = decodedToken.payload.exp * 1000
     let refreshTimeout = (tokenExpDateMs - new Date()) / 2
 
@@ -123,5 +127,21 @@ export class AutherClient {
     }
 
     this.#scheduleTokensRefreshing({ getTokens, saveTokens })
+  }
+
+  fetchDisposableTokensById = ({ id, headers }) => {
+    if (!headers) {
+      throw new Error("invalid.headers")
+    }
+
+    if (!id) {
+      throw new Error("invalid.auther_id")
+    }
+
+    return this.http({
+      path: this.#DISPOSABLE_TOKEN_PATH,
+      body: { id },
+      headers,
+    })
   }
 }

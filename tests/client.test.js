@@ -5,6 +5,7 @@ import { doFetch } from "../src/lib/http"
 
 fetchMock.enableMocks()
 
+const TEST_ID = 777
 const TEST_TOKEN = "test-access-token"
 const TEST_REFRESH_TOKEN = "test-refresh-token"
 const RETURN_URI = "http://example.com/"
@@ -22,7 +23,7 @@ const createAutherClient = (params = {}) => {
   })
 }
 
-const getTokenPayload = expDate => {
+const getTokenPayload = (expDate, temp) => {
   const expiredAt = expDate ? new Date(expDate) : new Date()
   const issuedAt = new Date(expiredAt)
   if (!expDate) {
@@ -30,28 +31,32 @@ const getTokenPayload = expDate => {
   }
   const iat = issuedAt.getTime() / 1000 // in seconds
   const exp = expiredAt.getTime() / 1000 // in seconds
-  return { iat, exp }
+  return { iat, exp, temp }
 }
 
 const getToken = (params = {}) => {
-  const { expDate, type } = params
-  const payload = btoa(JSON.stringify({ ...getTokenPayload(expDate), type }))
+  const { expDate, type, tempToken } = params
+  const payload = btoa(JSON.stringify({ ...getTokenPayload(expDate, tempToken), type }))
   const header = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"
   const signature = "SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
   const jwtLikeToken = `${header}.${payload}.${signature}`
   return jwtLikeToken
 }
 
-const getAccessToken = expDate => {
-  return getToken({ type: "access", expDate })
+const getAccessToken = (expDate, tempToken) => {
+  return getToken({ type: "access", expDate, tempToken })
 }
 
 const getRefreshToken = expDate => {
   return getToken({ type: "refresh", expDate })
 }
 
-const getAuthCallbacks = ({ accessTokenExpDate, refreshTokenExpDate } = {}) => {
-  let accessToken = getAccessToken(accessTokenExpDate)
+const getAuthCallbacks = ({
+  accessTokenExpDate,
+  refreshTokenExpDate,
+  tempToken = false,
+} = {}) => {
+  let accessToken = getAccessToken(accessTokenExpDate, tempToken)
   let refreshToken = getRefreshToken(refreshTokenExpDate)
   const getTokens = () => ({ accessToken, refreshToken })
   const saveTokens = (tokens = {}) => {
@@ -120,6 +125,31 @@ describe("When use auther methods", () => {
     })
   })
 
+  it("should fetch one-time token by id", async () => {
+    const payload = {
+      id: TEST_ID,
+      headers: { Authorization: TEST_TOKEN },
+    }
+    const auth = createAutherClient()
+
+    const response = await auth.fetchDisposableTokensById(payload)
+
+    const expectedUrl = "http://localhost/tokens/disposable"
+    const expectedBody = JSON.stringify({ id: TEST_ID })
+    const expectedHeaders = {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      Authorization: TEST_TOKEN,
+    }
+
+    expect(response.status).toEqual(200)
+    expect(fetch).toHaveBeenCalledWith(expectedUrl, {
+      method: "POST",
+      body: expectedBody,
+      headers: expectedHeaders,
+    })
+  })
+
   it("should make a request to get tokens", async () => {
     const auth = createAutherClient()
 
@@ -145,7 +175,7 @@ describe("When use auther methods", () => {
       jest.useFakeTimers()
     })
 
-    it("should authenticate with fresh tokens", async () => {
+    it("should authenticate with actual tokens", async () => {
       fetch.mockResponseOnce(JSON.stringify({
         accessToken: getAccessToken(),
         refreshToken: getRefreshToken(),
@@ -172,7 +202,7 @@ describe("When use auther methods", () => {
       })
     })
 
-    it("should authenticate with fresh refresh token and expired access token", async () => {
+    it("should authenticate with actual refresh token and expired access token", async () => {
       fetch.mockResponseOnce(JSON.stringify({
         accessToken: getAccessToken(),
         refreshToken: getRefreshToken(),
@@ -318,5 +348,44 @@ describe("When params is missing", () => {
 
     expect(updateTokens).toThrow("invalid.refresh_token")
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it("should show an error invalid without id", async () => {
+    const auth = createAutherClient()
+    const fetchTokens = () => auth.fetchDisposableTokensById({ id: undefined, headers: {} })
+
+    expect(fetchTokens).toThrow("invalid.auther_id")
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it("should show an error invalid without headers", async () => {
+    const auth = createAutherClient()
+    const fetchTokens = () => auth.fetchDisposableTokensById({
+      id: TEST_ID,
+      headers: undefined,
+    })
+
+    expect(fetchTokens).toThrow("invalid.headers")
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it("should not start the update timer", async () => {
+    const mockLogger = { log: jest.fn() }
+
+    const auth = createAutherClient({ logger: mockLogger })
+    const expiredDate = new Date()
+    expiredDate.setDate(expiredDate.getDate() + 10)
+    const callbacks = getAuthCallbacks({
+      accessTokenExpDate: expiredDate,
+      tempToken: true,
+    })
+
+    await auth.authentication(callbacks)
+
+    const expectedRefreshDate = new Date(Date.now() + 24 * 60 * 60 * 1000) // one day
+
+    expect(mockLogger.log).not.toHaveBeenCalledWith(
+      `Token will be refreshed at ${expectedRefreshDate} [${expectedRefreshDate.toUTCString()}]`,
+    )
   })
 })

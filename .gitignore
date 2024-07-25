@@ -2,3 +2,4 @@ node_modules/
 coverage/
 dist/
 yarn-*.log
+.DS_Store

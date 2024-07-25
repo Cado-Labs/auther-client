@@ -1,4 +1,4 @@
-export const doFetch = url => params => {
+export const doFetch = baseUrl => params => {
   const { path, body, method = "POST", headers = "" } = params
 
   const buildHeaders = () => {
@@ -20,7 +20,9 @@ export const doFetch = url => params => {
   }
 
   const buildUrl = () => {
-    return new URL(path, url).toString()
+    const url = new URL(path, baseUrl)
+
+    return url.toString()
   }
 
   const requestUrl = buildUrl()
