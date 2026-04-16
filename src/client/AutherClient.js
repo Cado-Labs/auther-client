@@ -12,12 +12,13 @@ export class AutherClient {
   #LOGIN_PATH = "/login"
   #DISPOSABLE_TOKEN_PATH = "/tokens/disposable"
 
-  constructor ({ redirectUri, autherUrl, http, appcode, logger }) {
+  constructor ({ redirectUri, autherUrl, http, appcode, logger, onError }) {
     this.redirectUri = redirectUri
     this.autherUrl = autherUrl
     this.http = http
     this.appcode = appcode
     this.logger = logger
+    this.onError = onError
   }
 
   #buildOauthUrl = () => {
@@ -30,18 +31,34 @@ export class AutherClient {
     return redirectUrl.toString()
   }
 
-  #refreshTokens = async ({ getTokens, saveTokens }) => {
-    const currentTime = `${new Date()} [${new Date().toUTCString()}]`
-    const { refreshToken } = getTokens()
+  refreshTokens = async ({ getTokens, saveTokens }) => {
+    const tokenBefore = getTokens().refreshToken
 
-    verify(refreshToken)
+    const doRefresh = async () => {
+      const { refreshToken } = getTokens()
 
-    const response = await this.updateTokens(refreshToken)
-    const tokens = await response.json()
+      if (refreshToken !== tokenBefore) {
+        return getTokens()
+      }
 
-    saveTokens(tokens)
+      verify(refreshToken)
+      const response = await this.updateTokens(refreshToken)
 
-    this.logger.log(`Token has been refreshed successfully at ${currentTime}`)
+      if (!response.ok) {
+        throw new Error("refresh.failed")
+      }
+
+      const tokens = await response.json()
+      saveTokens(tokens)
+      this.logger.log(`Token has been refreshed successfully at ${new Date().toUTCString()}`)
+      return tokens
+    }
+
+    if (typeof navigator !== "undefined" && navigator.locks) {
+      return navigator.locks.request("auth_refresh", doRefresh)
+    }
+
+    return doRefresh()
   }
 
   #scheduleTokensRefreshing = ({ getTokens, saveTokens }) => {
@@ -72,13 +89,14 @@ export class AutherClient {
 
     setTimeout(async () => {
       try {
-        await this.#refreshTokens({ getTokens, saveTokens })
+        await this.refreshTokens({ getTokens, saveTokens })
         this.#scheduleTokensRefreshing({ getTokens, saveTokens })
       }
       catch (error) {
         this.logger.error(
           `Error during tokens refreshing at ${new Date()} [${new Date().toUTCString()}]`,
         )
+        this.onError?.(error)
       }
     }, refreshTimeout)
   }
@@ -123,7 +141,7 @@ export class AutherClient {
       verify(accessToken)
     }
     catch (err) {
-      await this.#refreshTokens({ getTokens, saveTokens })
+      await this.refreshTokens({ getTokens, saveTokens })
     }
 
     this.#scheduleTokensRefreshing({ getTokens, saveTokens })
