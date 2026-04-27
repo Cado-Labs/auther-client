@@ -172,37 +172,9 @@ describe("When use auther methods", () => {
 
   describe("authenticate method", () => {
     beforeEach(() => {
-      jest.useFakeTimers()
       window.navigator.locks = {
         request: (_name, callback) => callback(),
       }
-    })
-
-    it("should authenticate with actual tokens", async () => {
-      fetch.mockResponseOnce(JSON.stringify({
-        accessToken: getAccessToken(),
-        refreshToken: getRefreshToken(),
-      }))
-
-      const auth = createAutherClient()
-      const callbacks = getAuthCallbacks()
-
-      await expect(() => auth.authentication(callbacks)).not.toThrowError()
-
-      jest.runOnlyPendingTimers()
-
-      const expectedUrl = "http://localhost/tokens/refresh"
-      const expectedBody = JSON.stringify({ refreshToken: callbacks.getTokens().refreshToken })
-      const expectedHeaders = {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      }
-
-      expect(fetch).toHaveBeenCalledWith(expectedUrl, {
-        method: "POST",
-        body: expectedBody,
-        headers: expectedHeaders,
-      })
     })
 
     it("should authenticate with actual refresh token and expired access token", async () => {
@@ -218,8 +190,6 @@ describe("When use auther methods", () => {
       const callbacks = getAuthCallbacks({ accessTokenExpDate: expiredDate })
       await expect(() => auth.authentication(callbacks)).not.toThrowError()
 
-      jest.runOnlyPendingTimers()
-
       const expectedUrl = "http://localhost/tokens/refresh"
       const expectedBody = JSON.stringify({ refreshToken: callbacks.getTokens().refreshToken })
       const expectedHeaders = {
@@ -231,29 +201,6 @@ describe("When use auther methods", () => {
         method: "POST",
         body: expectedBody,
         headers: expectedHeaders,
-      })
-    })
-
-    it("should log error when refresh token expired", async () => {
-      fetch.mockResponseOnce(JSON.stringify({
-        accessToken: getAccessToken(),
-        refreshToken: getRefreshToken(),
-      }))
-      const mockLogger = { log: jest.fn(), error: jest.fn() }
-
-      const auth = createAutherClient({ logger: mockLogger })
-      const expiredDate = new Date()
-      expiredDate.setHours(expiredDate.getHours() - 3)
-      const callbacks = getAuthCallbacks({ refreshTokenExpDate: expiredDate })
-
-      await expect(() => auth.authentication(callbacks)).not.toThrowError()
-
-      jest.runAllTimers()
-
-      mockLogger.error.mockImplementationOnce(() => {
-        expect(mockLogger.error).toHaveBeenCalledWith(
-          `Error during tokens refreshing at ${new Date()} [${new Date().toUTCString()}]`,
-        )
       })
     })
 
@@ -273,42 +220,6 @@ describe("When use auther methods", () => {
       expect(fetch).not.toHaveBeenCalled()
     })
 
-    it("should log error when server fails to refresh tokens", async () => {
-      const mockLogger = { log: jest.fn(), error: jest.fn() }
-      const auth = createAutherClient({ logger: mockLogger })
-
-      fetch.mockRejectOnce()
-
-      const callbacks = getAuthCallbacks()
-
-      await expect(() => auth.authentication(callbacks)).not.toThrowError()
-
-      jest.runAllTimers()
-
-      mockLogger.error.mockImplementationOnce(() => {
-        expect(mockLogger.error).toHaveBeenCalledWith(
-          `Error during tokens refreshing at ${new Date()} [${new Date().toUTCString()}]`,
-        )
-      })
-    })
-
-    it("should set min refreshTimeout to one minute", async () => {
-      const mockLogger = { log: jest.fn() }
-
-      const auth = createAutherClient({ logger: mockLogger })
-      const expiredDate = new Date()
-      expiredDate.setSeconds(expiredDate.getSeconds() + 30)
-      const callbacks = getAuthCallbacks({ accessTokenExpDate: expiredDate })
-
-      await auth.authentication(callbacks)
-
-      const expectedRefreshDate = new Date(Date.now() + 60 * 1000) // one minute
-
-      expect(mockLogger.log).toHaveBeenCalledWith(
-        `Token will be refreshed at ${expectedRefreshDate} [${expectedRefreshDate.toUTCString()}]`,
-      )
-    })
-
     it("should not call saveTokens when refresh endpoint returns error response", async () => {
       fetch.resetMocks()
       const auth = createAutherClient()
@@ -326,62 +237,6 @@ describe("When use auther methods", () => {
         .toThrow("refresh.failed")
 
       expect(saveTokensMock).not.toHaveBeenCalled()
-    })
-
-    it("should not call saveTokens when scheduled refresh returns error response", async () => {
-      const mockLogger = { log: jest.fn(), error: jest.fn() }
-      const auth = createAutherClient({ logger: mockLogger })
-
-      fetch.mockResponseOnce(JSON.stringify({ error: "token_invalid" }), { status: 401 })
-
-      const saveTokensMock = jest.fn()
-      const { getTokens } = getAuthCallbacks()
-
-      await auth.authentication({ getTokens, saveTokens: saveTokensMock })
-
-      jest.runAllTimers()
-      // // flush microtasks from the async timer callback and fetch mock chain
-      for (let i = 0; i < 10; i += 1) { await Promise.resolve() }
-
-      expect(saveTokensMock).not.toHaveBeenCalled()
-      expect(mockLogger.error).toHaveBeenCalled()
-    })
-
-    it("should not call onError when it is not provided and scheduled refresh fails", async () => {
-      const mockLogger = { log: jest.fn(), error: jest.fn() }
-      const auth = createAutherClient({ logger: mockLogger })
-
-      fetch.mockResponseOnce(JSON.stringify({ error: "token_invalid" }), { status: 401 })
-
-      const saveTokensMock = jest.fn()
-      const { getTokens } = getAuthCallbacks()
-
-      await auth.authentication({ getTokens, saveTokens: saveTokensMock })
-
-      jest.runAllTimers()
-      for (let i = 0; i < 10; i += 1) { await Promise.resolve() }
-
-      expect(mockLogger.error).toHaveBeenCalled()
-      // should not throw when onError is not provided
-    })
-
-    it("calls onError when scheduled refresh fails", async () => {
-      const onErrorMock = jest.fn()
-      const mockLogger = { log: jest.fn(), error: jest.fn() }
-      const auth = createAutherClient({ logger: mockLogger, onError: onErrorMock })
-
-      fetch.mockResponseOnce(JSON.stringify({ error: "token_invalid" }), { status: 401 })
-
-      const saveTokensMock = jest.fn()
-      const { getTokens } = getAuthCallbacks()
-
-      await auth.authentication({ getTokens, saveTokens: saveTokensMock })
-
-      jest.runAllTimers()
-      for (let i = 0; i < 10; i += 1) { await Promise.resolve() }
-
-      expect(onErrorMock).toHaveBeenCalledWith(expect.any(Error))
-      expect(onErrorMock.mock.calls[0][0].message).toBe("refresh.failed")
     })
 
     it("returns current tokens without fetch when refreshToken changed before lock", async () => {
@@ -429,23 +284,6 @@ describe("When use auther methods", () => {
       finally {
         window.navigator.locks = savedLocks
       }
-    })
-
-    it("should set max refreshTimeout to one day", async () => {
-      const mockLogger = { log: jest.fn() }
-
-      const auth = createAutherClient({ logger: mockLogger })
-      const expiredDate = new Date()
-      expiredDate.setDate(expiredDate.getDate() + 10)
-      const callbacks = getAuthCallbacks({ accessTokenExpDate: expiredDate })
-
-      await auth.authentication(callbacks)
-
-      const expectedRefreshDate = new Date(Date.now() + 24 * 60 * 60 * 1000) // one day
-
-      expect(mockLogger.log).toHaveBeenCalledWith(
-        `Token will be refreshed at ${expectedRefreshDate} [${expectedRefreshDate.toUTCString()}]`,
-      )
     })
   })
 })

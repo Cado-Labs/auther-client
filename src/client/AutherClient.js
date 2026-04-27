@@ -1,7 +1,4 @@
-import { verify, decode } from "../lib/jwt"
-
-const ONE_MINUTE_MS = 60 * 1000
-const ONE_DAY_MS = 24 * 60 * 60 * 1000
+import { verify } from "../lib/jwt"
 
 export class AutherClient {
   #location = window.location
@@ -12,13 +9,12 @@ export class AutherClient {
   #LOGIN_PATH = "/login"
   #DISPOSABLE_TOKEN_PATH = "/tokens/disposable"
 
-  constructor ({ redirectUri, autherUrl, http, appcode, logger, onError }) {
+  constructor ({ redirectUri, autherUrl, http, appcode, logger }) {
     this.redirectUri = redirectUri
     this.autherUrl = autherUrl
     this.http = http
     this.appcode = appcode
     this.logger = logger
-    this.onError = onError
   }
 
   #buildOauthUrl = () => {
@@ -59,46 +55,6 @@ export class AutherClient {
     }
 
     return doRefresh()
-  }
-
-  #scheduleTokensRefreshing = ({ getTokens, saveTokens }) => {
-    const { accessToken } = getTokens()
-
-    verify(accessToken)
-
-    const decodedToken = decode(accessToken)
-
-    if (decodedToken.payload.temp) return false
-
-    const tokenExpDateMs = decodedToken.payload.exp * 1000
-    let refreshTimeout = (tokenExpDateMs - new Date()) / 2
-
-    if (refreshTimeout < ONE_MINUTE_MS) {
-      refreshTimeout = ONE_MINUTE_MS
-    }
-
-    if (refreshTimeout > ONE_DAY_MS) {
-      refreshTimeout = ONE_DAY_MS
-    }
-
-    const tokenExpDate = new Date(tokenExpDateMs)
-    const refreshDate = new Date(Date.now() + refreshTimeout)
-
-    this.logger.log(`Token will expire at ${(tokenExpDate)} [${tokenExpDate.toUTCString()}]`)
-    this.logger.log(`Token will be refreshed at ${refreshDate} [${refreshDate.toUTCString()}]`)
-
-    setTimeout(async () => {
-      try {
-        await this.refreshTokens({ getTokens, saveTokens })
-        this.#scheduleTokensRefreshing({ getTokens, saveTokens })
-      }
-      catch (error) {
-        this.logger.error(
-          `Error during tokens refreshing at ${new Date()} [${new Date().toUTCString()}]`,
-        )
-        this.onError?.(error)
-      }
-    }, refreshTimeout)
   }
 
   login = () => {
@@ -143,8 +99,6 @@ export class AutherClient {
     catch (err) {
       await this.refreshTokens({ getTokens, saveTokens })
     }
-
-    this.#scheduleTokensRefreshing({ getTokens, saveTokens })
   }
 
   fetchDisposableTokensById = ({ id, headers }) => {
