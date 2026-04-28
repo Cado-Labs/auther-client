@@ -1,7 +1,4 @@
-import { verify, decode } from "../lib/jwt"
-
-const ONE_MINUTE_MS = 60 * 1000
-const ONE_DAY_MS = 24 * 60 * 60 * 1000
+import { verify } from "../lib/jwt"
 
 export class AutherClient {
   #location = window.location
@@ -30,57 +27,34 @@ export class AutherClient {
     return redirectUrl.toString()
   }
 
-  #refreshTokens = async ({ getTokens, saveTokens }) => {
-    const currentTime = `${new Date()} [${new Date().toUTCString()}]`
-    const { refreshToken } = getTokens()
+  refreshTokens = async ({ getTokens, saveTokens }) => {
+    const tokenBefore = getTokens().refreshToken
 
-    verify(refreshToken)
+    const doRefresh = async () => {
+      const { refreshToken } = getTokens()
 
-    const response = await this.updateTokens(refreshToken)
-    const tokens = await response.json()
+      if (refreshToken !== tokenBefore) {
+        return getTokens()
+      }
 
-    saveTokens(tokens)
+      verify(refreshToken)
+      const response = await this.updateTokens(refreshToken)
 
-    this.logger.log(`Token has been refreshed successfully at ${currentTime}`)
-  }
+      if (!response.ok) {
+        throw new Error("refresh.failed")
+      }
 
-  #scheduleTokensRefreshing = ({ getTokens, saveTokens }) => {
-    const { accessToken } = getTokens()
-
-    verify(accessToken)
-
-    const decodedToken = decode(accessToken)
-
-    if (decodedToken.payload.temp) return false
-
-    const tokenExpDateMs = decodedToken.payload.exp * 1000
-    let refreshTimeout = (tokenExpDateMs - new Date()) / 2
-
-    if (refreshTimeout < ONE_MINUTE_MS) {
-      refreshTimeout = ONE_MINUTE_MS
+      const tokens = await response.json()
+      saveTokens(tokens)
+      this.logger.log(`Token has been refreshed successfully at ${new Date().toUTCString()}`)
+      return tokens
     }
 
-    if (refreshTimeout > ONE_DAY_MS) {
-      refreshTimeout = ONE_DAY_MS
+    if (typeof navigator !== "undefined" && navigator.locks) {
+      return navigator.locks.request("auth_refresh", doRefresh)
     }
 
-    const tokenExpDate = new Date(tokenExpDateMs)
-    const refreshDate = new Date(Date.now() + refreshTimeout)
-
-    this.logger.log(`Token will expire at ${(tokenExpDate)} [${tokenExpDate.toUTCString()}]`)
-    this.logger.log(`Token will be refreshed at ${refreshDate} [${refreshDate.toUTCString()}]`)
-
-    setTimeout(async () => {
-      try {
-        await this.#refreshTokens({ getTokens, saveTokens })
-        this.#scheduleTokensRefreshing({ getTokens, saveTokens })
-      }
-      catch (error) {
-        this.logger.error(
-          `Error during tokens refreshing at ${new Date()} [${new Date().toUTCString()}]`,
-        )
-      }
-    }, refreshTimeout)
+    return doRefresh()
   }
 
   login = () => {
@@ -123,10 +97,8 @@ export class AutherClient {
       verify(accessToken)
     }
     catch (err) {
-      await this.#refreshTokens({ getTokens, saveTokens })
+      await this.refreshTokens({ getTokens, saveTokens })
     }
-
-    this.#scheduleTokensRefreshing({ getTokens, saveTokens })
   }
 
   fetchDisposableTokensById = ({ id, headers }) => {
