@@ -91,7 +91,7 @@ try {
 
 #### Authentication
 
-Authentication method for verifying access and refresh tokens and scheduling tokens refreshing.
+Authentication method for verifying access and refresh tokens.
 
 ```js
 const getTokens = () => {
