@@ -686,9 +686,9 @@ describe("Scheduled token refresh", () => {
     auth.startScheduledRefresh({ getTokens, saveTokens, onError, onTransientFailure })
 
     await advance(750_000) // attempt 1 → backoff 1s
-    await advance(1_000)   // attempt 2 → backoff 2s
-    await advance(2_000)   // attempt 3 → backoff 4s
-    await advance(4_000)   // attempt 4 → backoff 8s
+    await advance(1_000) // attempt 2 → backoff 2s
+    await advance(2_000) // attempt 3 → backoff 4s
+    await advance(4_000) // attempt 4 → backoff 8s
 
     expect(fetch).toHaveBeenCalledTimes(4)
     expect(onError).not.toHaveBeenCalled()
@@ -707,11 +707,11 @@ describe("Scheduled token refresh", () => {
     auth.startScheduledRefresh({ getTokens, saveTokens, onError, onTransientFailure })
 
     await advance(750_000) // 1
-    await advance(1_000)   // 2
-    await advance(2_000)   // 3
-    await advance(4_000)   // 4
-    await advance(8_000)   // 5 → report
-    await advance(16_000)  // 6 → silent
+    await advance(1_000) // 2
+    await advance(2_000) // 3
+    await advance(4_000) // 4
+    await advance(8_000) // 5 → report
+    await advance(16_000) // 6 → silent
 
     expect(onError).not.toHaveBeenCalled()
     expect(onTransientFailure).toHaveBeenCalledTimes(1)
@@ -752,21 +752,21 @@ describe("Scheduled token refresh", () => {
     auth.startScheduledRefresh({ getTokens, saveTokens, onTransientFailure })
 
     await advance(750_000) // 1
-    await advance(1_000)   // 2
-    await advance(2_000)   // 3
-    await advance(4_000)   // 4
-    await advance(8_000)   // 5 → first report; counter still pinned at 5
-    await advance(16_000)  // success → counter resets, scheduler re-arms from new exp
+    await advance(1_000) // 2
+    await advance(2_000) // 3
+    await advance(4_000) // 4
+    await advance(8_000) // 5 → first report; counter still pinned at 5
+    await advance(16_000) // success → counter resets, scheduler re-arms from new exp
 
     expect(onTransientFailure).toHaveBeenCalledTimes(1)
 
     // After success the scheduler re-arms from the fresh-token exp (iat+1000s, exp+3000s),
     // so the next tick is ~1.72M ms away. Advance generously, then run the backoff steps.
     await advance(2_000_000) // burst-2 attempt 1
-    await advance(1_000)     // 2
-    await advance(2_000)     // 3
-    await advance(4_000)     // 4
-    await advance(8_000)     // 5 → second report
+    await advance(1_000) // 2
+    await advance(2_000) // 3
+    await advance(4_000) // 4
+    await advance(8_000) // 5 → second report
 
     expect(onTransientFailure).toHaveBeenCalledTimes(2)
     expect(onTransientFailure.mock.calls[1][0].attempts).toBe(5)
