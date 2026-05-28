@@ -332,6 +332,52 @@ describe("When params is missing", () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
+  it("attaches the HTTP status to a failed refresh error", async () => {
+    window.navigator.locks = { request: (_name, callback) => callback() }
+    fetch.resetMocks()
+    fetch.mockResponseOnce(JSON.stringify({ error: "session.invalid" }), { status: 422 })
+
+    const auth = createAutherClient()
+    const expiredDate = new Date()
+    expiredDate.setHours(expiredDate.getHours() - 3)
+    const { getTokens } = getAuthCallbacks({ accessTokenExpDate: expiredDate })
+
+    await auth.refreshTokens({ getTokens, saveTokens: jest.fn() }).catch(error => {
+      expect(error.message).toBe("refresh.failed")
+      expect(error.status).toBe(422)
+    })
+    expect.assertions(2)
+  })
+
+  it("exposes the server code from the response body on a failed refresh", async () => {
+    window.navigator.locks = { request: (_name, callback) => callback() }
+    fetch.resetMocks()
+    fetch.mockResponseOnce(JSON.stringify({ code: "session.invalid" }), { status: 422 })
+
+    const auth = createAutherClient()
+    const { getTokens } = getAuthCallbacks()
+
+    await auth.refreshTokens({ getTokens, saveTokens: jest.fn() }).catch(error => {
+      expect(error.serverCode).toBe("session.invalid")
+    })
+    expect.assertions(1)
+  })
+
+  it("leaves serverCode undefined when the response body is not JSON", async () => {
+    window.navigator.locks = { request: (_name, callback) => callback() }
+    fetch.resetMocks()
+    fetch.mockResponseOnce("not json", { status: 500 })
+
+    const auth = createAutherClient()
+    const { getTokens } = getAuthCallbacks()
+
+    await auth.refreshTokens({ getTokens, saveTokens: jest.fn() }).catch(error => {
+      expect(error.status).toBe(500)
+      expect(error.serverCode).toBeUndefined()
+    })
+    expect.assertions(2)
+  })
+
   it("should not start the update timer", async () => {
     const mockLogger = { log: jest.fn() }
 
@@ -350,5 +396,381 @@ describe("When params is missing", () => {
     expect(mockLogger.log).not.toHaveBeenCalledWith(
       `Token will be refreshed at ${expectedRefreshDate} [${expectedRefreshDate.toUTCString()}]`,
     )
+  })
+})
+
+describe("Scheduled token refresh", () => {
+  const NOW = 1_700_000_000_000 // fixed wall clock for deterministic timers
+
+  const buildToken = ({ iatOffset = 0, expOffset, type = "access" }) => {
+    const iat = NOW / 1000 + iatOffset
+    const exp = NOW / 1000 + expOffset
+    const payload = btoa(JSON.stringify({ iat, exp, type }))
+    const header = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"
+    return `${header}.${payload}.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c`
+  }
+
+  const makeStore = (accessExpOffset = 1000) => {
+    let accessToken = buildToken({ expOffset: accessExpOffset })
+    let refreshToken = buildToken({ expOffset: 5000, type: "refresh" })
+
+    return {
+      getTokens: () => ({ accessToken, refreshToken }),
+      saveTokens: tokens => {
+        if (tokens.accessToken) accessToken = tokens.accessToken
+        if (tokens.refreshToken) refreshToken = tokens.refreshToken
+      },
+      setAccess: value => { accessToken = value },
+      setRefresh: value => { refreshToken = value },
+    }
+  }
+
+  const freshTokensResponse = () => JSON.stringify({
+    accessToken: buildToken({ iatOffset: 1000, expOffset: 3000 }),
+    refreshToken: buildToken({ iatOffset: 1000, expOffset: 6000, type: "refresh" }),
+  })
+
+  // jest 29.2 has no advanceTimersByTimeAsync: advance fake timers, then drain microtasks
+  // so the async tick bodies (refresh → catch/reschedule) settle before assertions.
+  const advance = async ms => {
+    jest.advanceTimersByTime(ms)
+    for (let i = 0; i < 20; i += 1) {
+      await Promise.resolve()
+    }
+  }
+
+  beforeEach(() => {
+    jest.useFakeTimers()
+    jest.setSystemTime(NOW)
+    fetch.resetMocks()
+    window.navigator.locks = { request: (_name, callback) => callback() }
+  })
+
+  afterEach(() => {
+    jest.clearAllTimers()
+    jest.useRealTimers()
+  })
+
+  it("schedules the refresh by ratio/minBuffer and fires before exp", async () => {
+    fetch.mockResponse(freshTokensResponse())
+    const { getTokens, saveTokens } = makeStore(1000) // lifetime 1000s
+    const auth = createAutherClient()
+
+    // byRatio = iat + 1000 * 0.75 = +750s; byBuffer = exp - 30s = +970s → ratio wins
+    auth.startScheduledRefresh({ getTokens, saveTokens, ratio: 0.75, minBuffer: 30_000 })
+
+    await advance(749_999)
+    expect(fetch).not.toHaveBeenCalled()
+
+    await advance(1)
+    expect(fetch).toHaveBeenCalledTimes(1)
+
+    auth.stopScheduledRefresh()
+  })
+
+  it("reschedules from the new exp after a successful tick", async () => {
+    fetch.mockResponse(freshTokensResponse())
+    const { getTokens, saveTokens } = makeStore(1000)
+    const auth = createAutherClient()
+
+    auth.startScheduledRefresh({ getTokens, saveTokens })
+
+    await advance(750_000)
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(jest.getTimerCount()).toBe(1) // a new timer was armed from the fresh token
+
+    auth.stopScheduledRefresh()
+    expect(jest.getTimerCount()).toBe(0)
+  })
+
+  it("retries with backoff on a network error and resets after success", async () => {
+    fetch.mockRejectOnce(new Error("network down"))
+    fetch.mockResponseOnce(freshTokensResponse())
+    const onError = jest.fn()
+    const { getTokens, saveTokens } = makeStore(1000)
+    const auth = createAutherClient()
+
+    auth.startScheduledRefresh({ getTokens, saveTokens, onError })
+
+    await advance(750_000) // tick → reject → backoff 1000ms
+    expect(fetch).toHaveBeenCalledTimes(1)
+
+    await advance(1000) // retry → success
+    expect(fetch).toHaveBeenCalledTimes(2)
+    expect(onError).not.toHaveBeenCalled()
+
+    auth.stopScheduledRefresh()
+  })
+
+  it("treats 5xx as transient and retries", async () => {
+    fetch.mockResponseOnce(JSON.stringify({ error: "boom" }), { status: 503 })
+    fetch.mockResponseOnce(freshTokensResponse())
+    const onError = jest.fn()
+    const { getTokens, saveTokens } = makeStore(1000)
+    const auth = createAutherClient()
+
+    auth.startScheduledRefresh({ getTokens, saveTokens, onError })
+
+    await advance(750_000)
+    await advance(1000)
+
+    expect(fetch).toHaveBeenCalledTimes(2)
+    expect(onError).not.toHaveBeenCalled()
+
+    auth.stopScheduledRefresh()
+  })
+
+  it("treats 429 as transient and retries", async () => {
+    fetch.mockResponseOnce(JSON.stringify({ error: "slow down" }), { status: 429 })
+    fetch.mockResponseOnce(freshTokensResponse())
+    const onError = jest.fn()
+    const { getTokens, saveTokens } = makeStore(1000)
+    const auth = createAutherClient()
+
+    auth.startScheduledRefresh({ getTokens, saveTokens, onError })
+
+    await advance(750_000)
+    await advance(1000)
+
+    expect(fetch).toHaveBeenCalledTimes(2)
+    expect(onError).not.toHaveBeenCalled()
+
+    auth.stopScheduledRefresh()
+  })
+
+  it("routes a fatal 422 to onError without rescheduling", async () => {
+    fetch.mockResponse(JSON.stringify({ error: "session.invalid" }), { status: 422 })
+    const onError = jest.fn()
+    const { getTokens, saveTokens } = makeStore(1000)
+    const auth = createAutherClient()
+
+    auth.startScheduledRefresh({ getTokens, saveTokens, onError })
+
+    await advance(750_000)
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(onError).toHaveBeenCalledTimes(1)
+    expect(onError.mock.calls[0][0].status).toBe(422)
+    expect(jest.getTimerCount()).toBe(0) // not rescheduled
+
+    auth.stopScheduledRefresh()
+  })
+
+  it("treats a local verify error as fatal and does not call a missing onError", async () => {
+    const { getTokens, saveTokens, setRefresh } = makeStore(1000)
+    setRefresh("not-a-jwt") // verify(refreshToken) throws token.invalid_token
+    const auth = createAutherClient()
+
+    // no onError provided → must not throw
+    auth.startScheduledRefresh({ getTokens, saveTokens })
+
+    await advance(750_000)
+    expect(fetch).not.toHaveBeenCalled()
+    expect(jest.getTimerCount()).toBe(0)
+
+    auth.stopScheduledRefresh()
+  })
+
+  it("calls onError when the access token cannot be decoded", () => {
+    const onError = jest.fn()
+    const { getTokens, saveTokens, setAccess } = makeStore(1000)
+    setAccess("broken") // decode throws
+
+    const auth = createAutherClient()
+    auth.startScheduledRefresh({ getTokens, saveTokens, onError })
+
+    expect(onError).toHaveBeenCalledTimes(1)
+    expect(jest.getTimerCount()).toBe(0)
+
+    auth.stopScheduledRefresh()
+  })
+
+  it("does not throw on a decode error when onError is absent", () => {
+    const { getTokens, saveTokens, setAccess } = makeStore(1000)
+    setAccess("broken")
+
+    const auth = createAutherClient()
+    expect(() => auth.startScheduledRefresh({ getTokens, saveTokens })).not.toThrow()
+
+    auth.stopScheduledRefresh()
+  })
+
+  it("is a no-op when reschedule is called without an active context", () => {
+    const auth = createAutherClient()
+    expect(() => auth.reschedule()).not.toThrow()
+    expect(jest.getTimerCount()).toBe(0)
+  })
+
+  it("registers and removes lifecycle listeners", () => {
+    const windowAdd = jest.spyOn(window, "addEventListener")
+    const windowRemove = jest.spyOn(window, "removeEventListener")
+    const docAdd = jest.spyOn(document, "addEventListener")
+    const docRemove = jest.spyOn(document, "removeEventListener")
+
+    const { getTokens, saveTokens } = makeStore(1000)
+    const auth = createAutherClient()
+
+    auth.startScheduledRefresh({ getTokens, saveTokens })
+    expect(docAdd).toHaveBeenCalledWith("visibilitychange", expect.any(Function))
+    expect(windowAdd).toHaveBeenCalledWith("online", expect.any(Function))
+
+    auth.stopScheduledRefresh()
+    expect(docRemove).toHaveBeenCalledWith("visibilitychange", expect.any(Function))
+    expect(windowRemove).toHaveBeenCalledWith("online", expect.any(Function))
+
+    windowAdd.mockRestore()
+    windowRemove.mockRestore()
+    docAdd.mockRestore()
+    docRemove.mockRestore()
+  })
+
+  it("does not register lifecycle listeners when watchLifecycle is false", () => {
+    const windowAdd = jest.spyOn(window, "addEventListener")
+    const docAdd = jest.spyOn(document, "addEventListener")
+
+    const { getTokens, saveTokens } = makeStore(1000)
+    const auth = createAutherClient()
+
+    auth.startScheduledRefresh({ getTokens, saveTokens, watchLifecycle: false })
+
+    expect(windowAdd).not.toHaveBeenCalledWith("online", expect.any(Function))
+    expect(docAdd).not.toHaveBeenCalledWith("visibilitychange", expect.any(Function))
+
+    auth.stopScheduledRefresh() // covers the absent-cleanup branch
+    windowAdd.mockRestore()
+    docAdd.mockRestore()
+  })
+
+  it("catches up on the 'online' event when the token is expired", async () => {
+    fetch.mockResponse(freshTokensResponse())
+    const { getTokens, saveTokens, setAccess } = makeStore(1000)
+    const auth = createAutherClient()
+
+    auth.startScheduledRefresh({ getTokens, saveTokens }) // far timer for the valid token
+    setAccess(buildToken({ iatOffset: -2000, expOffset: -1000 })) // now expired
+
+    window.dispatchEvent(new Event("online"))
+    await advance(1) // delay 0 → immediate tick
+    expect(fetch).toHaveBeenCalledTimes(1)
+
+    auth.stopScheduledRefresh()
+  })
+
+  it("ignores visibilitychange while the document is hidden, catches up when visible", async () => {
+    fetch.mockResponse(freshTokensResponse())
+    const { getTokens, saveTokens, setAccess } = makeStore(1000)
+    const auth = createAutherClient()
+
+    auth.startScheduledRefresh({ getTokens, saveTokens })
+    setAccess(buildToken({ iatOffset: -2000, expOffset: -1000 })) // expired
+
+    Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true })
+    document.dispatchEvent(new Event("visibilitychange"))
+    await advance(1)
+    expect(fetch).not.toHaveBeenCalled() // hidden → no catch-up
+
+    Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true })
+    document.dispatchEvent(new Event("visibilitychange"))
+    await advance(1)
+    expect(fetch).toHaveBeenCalledTimes(1)
+
+    auth.stopScheduledRefresh()
+  })
+
+  it("does not call onTransientFailure for the first four transient failures", async () => {
+    for (let i = 0; i < 4; i += 1) fetch.mockRejectOnce(new Error("network down"))
+    const onError = jest.fn()
+    const onTransientFailure = jest.fn()
+    const { getTokens, saveTokens } = makeStore(1000)
+    const auth = createAutherClient()
+
+    auth.startScheduledRefresh({ getTokens, saveTokens, onError, onTransientFailure })
+
+    await advance(750_000) // attempt 1 → backoff 1s
+    await advance(1_000)   // attempt 2 → backoff 2s
+    await advance(2_000)   // attempt 3 → backoff 4s
+    await advance(4_000)   // attempt 4 → backoff 8s
+
+    expect(fetch).toHaveBeenCalledTimes(4)
+    expect(onError).not.toHaveBeenCalled()
+    expect(onTransientFailure).not.toHaveBeenCalled()
+
+    auth.stopScheduledRefresh()
+  })
+
+  it("reports the transient outage once on the fifth consecutive failure", async () => {
+    for (let i = 0; i < 6; i += 1) fetch.mockRejectOnce(new Error("network down"))
+    const onError = jest.fn()
+    const onTransientFailure = jest.fn()
+    const { getTokens, saveTokens } = makeStore(1000)
+    const auth = createAutherClient()
+
+    auth.startScheduledRefresh({ getTokens, saveTokens, onError, onTransientFailure })
+
+    await advance(750_000) // 1
+    await advance(1_000)   // 2
+    await advance(2_000)   // 3
+    await advance(4_000)   // 4
+    await advance(8_000)   // 5 → report
+    await advance(16_000)  // 6 → silent
+
+    expect(onError).not.toHaveBeenCalled()
+    expect(onTransientFailure).toHaveBeenCalledTimes(1)
+    const reported = onTransientFailure.mock.calls[0][0]
+    expect(reported.attempts).toBe(5)
+    expect(reported.message).toBe("network down")
+
+    auth.stopScheduledRefresh()
+  })
+
+  it("does not throw when onTransientFailure is not provided", async () => {
+    for (let i = 0; i < 5; i += 1) fetch.mockRejectOnce(new Error("network down"))
+    const { getTokens, saveTokens } = makeStore(1000)
+    const auth = createAutherClient()
+
+    auth.startScheduledRefresh({ getTokens, saveTokens }) // no callbacks
+
+    await advance(750_000)
+    await advance(1_000)
+    await advance(2_000)
+    await advance(4_000)
+    await expect(advance(8_000)).resolves.not.toThrow()
+
+    auth.stopScheduledRefresh()
+  })
+
+  it("resets the transient report flag after a successful refresh", async () => {
+    // first burst: 5 failures → 1 report, then success
+    for (let i = 0; i < 5; i += 1) fetch.mockRejectOnce(new Error("down"))
+    fetch.mockResponseOnce(freshTokensResponse())
+    // second burst: 5 failures → another report
+    for (let i = 0; i < 5; i += 1) fetch.mockRejectOnce(new Error("down again"))
+
+    const onTransientFailure = jest.fn()
+    const { getTokens, saveTokens } = makeStore(1000)
+    const auth = createAutherClient()
+
+    auth.startScheduledRefresh({ getTokens, saveTokens, onTransientFailure })
+
+    await advance(750_000) // 1
+    await advance(1_000)   // 2
+    await advance(2_000)   // 3
+    await advance(4_000)   // 4
+    await advance(8_000)   // 5 → first report; counter still pinned at 5
+    await advance(16_000)  // success → counter resets, scheduler re-arms from new exp
+
+    expect(onTransientFailure).toHaveBeenCalledTimes(1)
+
+    // After success the scheduler re-arms from the fresh-token exp (iat+1000s, exp+3000s),
+    // so the next tick is ~1.72M ms away. Advance generously, then run the backoff steps.
+    await advance(2_000_000) // burst-2 attempt 1
+    await advance(1_000)     // 2
+    await advance(2_000)     // 3
+    await advance(4_000)     // 4
+    await advance(8_000)     // 5 → second report
+
+    expect(onTransientFailure).toHaveBeenCalledTimes(2)
+    expect(onTransientFailure.mock.calls[1][0].attempts).toBe(5)
+
+    auth.stopScheduledRefresh()
   })
 })
