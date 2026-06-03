@@ -555,7 +555,7 @@ describe("Scheduled token refresh", () => {
     auth.stopScheduledRefresh()
   })
 
-  it("stops watching lifecycle after a fatal error, so 'online' does not re-trigger a refresh", async () => {
+  it("stops watching lifecycle after a fatal error, so 'online' does not refresh", async () => {
     fetch.mockResponse(JSON.stringify({ error: "session.invalid" }), { status: 422 })
     const onError = jest.fn()
     const { getTokens, saveTokens, setAccess } = makeStore(1000)
