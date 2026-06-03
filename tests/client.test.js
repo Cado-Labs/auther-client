@@ -555,6 +555,31 @@ describe("Scheduled token refresh", () => {
     auth.stopScheduledRefresh()
   })
 
+  it("stops watching lifecycle after a fatal error, so 'online' does not re-trigger a refresh", async () => {
+    fetch.mockResponse(JSON.stringify({ error: "session.invalid" }), { status: 422 })
+    const onError = jest.fn()
+    const { getTokens, saveTokens, setAccess } = makeStore(1000)
+    const auth = createAutherClient()
+
+    auth.startScheduledRefresh({ getTokens, saveTokens, onError })
+
+    await advance(750_000) // tick → fatal 422
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(onError).toHaveBeenCalledTimes(1)
+
+    // Session is dead. Even if the token is now expired and the tab comes back online,
+    // the scheduler must not wake up and hammer the refresh endpoint again.
+    setAccess(buildToken({ iatOffset: -2000, expOffset: -1000 })) // expired
+    window.dispatchEvent(new Event("online"))
+    await advance(1)
+
+    expect(fetch).toHaveBeenCalledTimes(1) // no re-attempt
+    expect(onError).toHaveBeenCalledTimes(1)
+    expect(jest.getTimerCount()).toBe(0)
+
+    auth.stopScheduledRefresh()
+  })
+
   it("treats a local verify error as fatal and does not call a missing onError", async () => {
     const { getTokens, saveTokens, setRefresh } = makeStore(1000)
     setRefresh("not-a-jwt") // verify(refreshToken) throws token.invalid_token

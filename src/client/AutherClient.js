@@ -154,10 +154,12 @@ export class AutherClient {
       this.reschedule() // from the new exp
     }
     catch (error) {
-      // Fatal auth error (4xx: 422 reuse, expired refresh) → re-login, do not reschedule.
+      // Fatal auth error (4xx: 422 reuse, expired refresh) → re-login. The session is
+      // dead, so fully tear down: drop the lifecycle listeners too, otherwise a later
+      // focus/online would wake the scheduler and hammer the doomed refresh again.
+      // stopScheduledRefresh also resets #retries / #reportedTransient.
       if (isFatalAuthError(error)) {
-        this.#retries = 0
-        this.#reportedTransient = false
+        this.stopScheduledRefresh()
         onError?.(error)
         return
       }
