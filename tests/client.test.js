@@ -580,6 +580,61 @@ describe("Scheduled token refresh", () => {
     auth.stopScheduledRefresh()
   })
 
+  it("does not re-arm a backoff timer when stopped during an in-flight tick", async () => {
+    // Make the refresh hang so we can stop the scheduler mid-flight, then reject it.
+    let rejectRefresh
+    fetch.mockImplementationOnce(() => new Promise((_resolve, reject) => {
+      rejectRefresh = reject
+    }))
+    const onError = jest.fn()
+    const onTransientFailure = jest.fn()
+    const { getTokens, saveTokens } = makeStore(1000)
+    const auth = createAutherClient()
+
+    auth.startScheduledRefresh({ getTokens, saveTokens, onError, onTransientFailure })
+
+    await advance(750_000) // tick fires and awaits the still-pending refresh
+    expect(fetch).toHaveBeenCalledTimes(1)
+
+    // The host tears the scheduler down while the refresh is still in flight.
+    auth.stopScheduledRefresh()
+    expect(jest.getTimerCount()).toBe(0)
+
+    // Now the awaited refresh rejects with a transient error. The stale tick must
+    // not resurrect the scheduler with a fresh backoff timer.
+    rejectRefresh(new Error("network down"))
+    for (let i = 0; i < 20; i += 1) await Promise.resolve()
+
+    expect(jest.getTimerCount()).toBe(0)
+    expect(onTransientFailure).not.toHaveBeenCalled()
+  })
+
+  it("does not call onError when stopped during an in-flight tick that fails fatally", async () => {
+    let rejectRefresh
+    fetch.mockImplementationOnce(() => new Promise((_resolve, reject) => {
+      rejectRefresh = reject
+    }))
+    const onError = jest.fn()
+    const { getTokens, saveTokens } = makeStore(1000)
+    const auth = createAutherClient()
+
+    auth.startScheduledRefresh({ getTokens, saveTokens, onError })
+
+    await advance(750_000)
+    expect(fetch).toHaveBeenCalledTimes(1)
+
+    auth.stopScheduledRefresh()
+
+    // A fatal auth error arrives after the host already stopped the scheduler.
+    const fatal = new Error("refresh.failed")
+    fatal.status = 422
+    rejectRefresh(fatal)
+    for (let i = 0; i < 20; i += 1) await Promise.resolve()
+
+    expect(onError).not.toHaveBeenCalled()
+    expect(jest.getTimerCount()).toBe(0)
+  })
+
   it("treats a local verify error as fatal and does not call a missing onError", async () => {
     const { getTokens, saveTokens, setRefresh } = makeStore(1000)
     setRefresh("not-a-jwt") // verify(refreshToken) throws token.invalid_token

@@ -145,15 +145,24 @@ export class AutherClient {
   }
 
   #tick = async () => {
-    const { getTokens, saveTokens, onError, onTransientFailure } = this.#scheduleCtx
+    // Pin the context this tick belongs to. refreshTokens() awaits, and during that
+    // await the host may stopScheduledRefresh() (or restart with a fresh context).
+    // If that happened, this tick is stale: bail out so we neither re-arm a timer
+    // nor invoke callbacks that the host already detached.
+    const ctx = this.#scheduleCtx
+    if (!ctx) return
+    const { getTokens, saveTokens, onError, onTransientFailure } = ctx
 
     try {
       await this.refreshTokens({ getTokens, saveTokens })
+      if (this.#scheduleCtx !== ctx) return
       this.#retries = 0
       this.#reportedTransient = false
       this.reschedule() // from the new exp
     }
     catch (error) {
+      if (this.#scheduleCtx !== ctx) return
+
       // Fatal auth error (4xx: 422 reuse, expired refresh) → re-login. The session is
       // dead, so fully tear down: drop the lifecycle listeners too, otherwise a later
       // focus/online would wake the scheduler and hammer the doomed refresh again.
