@@ -150,7 +150,6 @@ export class AutherClient {
     // If that happened, this tick is stale: bail out so we neither re-arm a timer
     // nor invoke callbacks that the host already detached.
     const ctx = this.#scheduleCtx
-    if (!ctx) return
     const { getTokens, saveTokens, onError, onTransientFailure } = ctx
 
     try {

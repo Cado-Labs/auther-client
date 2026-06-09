@@ -609,6 +609,28 @@ describe("Scheduled token refresh", () => {
     expect(onTransientFailure).not.toHaveBeenCalled()
   })
 
+  it("does not reschedule when stopped during an in-flight tick that succeeds", async () => {
+    let resolveRefresh
+    fetch.mockImplementationOnce(() => new Promise(resolve => {
+      resolveRefresh = resolve
+    }))
+    const { getTokens, saveTokens } = makeStore(1000)
+    const auth = createAutherClient()
+
+    auth.startScheduledRefresh({ getTokens, saveTokens })
+
+    await advance(750_000)
+    expect(fetch).toHaveBeenCalledTimes(1)
+
+    auth.stopScheduledRefresh()
+
+    // The refresh succeeds after teardown: the stale tick must not re-arm a timer.
+    resolveRefresh(new Response(freshTokensResponse(), { status: 200 }))
+    for (let i = 0; i < 20; i += 1) await Promise.resolve()
+
+    expect(jest.getTimerCount()).toBe(0)
+  })
+
   it("does not call onError when stopped during an in-flight tick that fails fatally", async () => {
     let rejectRefresh
     fetch.mockImplementationOnce(() => new Promise((_resolve, reject) => {
